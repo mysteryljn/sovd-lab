@@ -1,5 +1,7 @@
+import contextlib
+import io
 import unittest
-from sovd import SOVDLab
+from sovd import SOVDLab, cli
 
 class SovdTests(unittest.TestCase):
     def test_discovery_and_measurement(self):
@@ -67,4 +69,29 @@ class SovdTests(unittest.TestCase):
             lab.handle("GET", "/api/v1/entities/powertrain/configuration")[1]["configuration"],
             {"mode": "sport"},
         )
+
+    def test_configuration_update_rejects_type_confusion(self):
+        lab = SOVDLab()
+        code, payload = lab.handle(
+            "PUT", "/api/v1/entities/powertrain/configuration", {"mode": {"value": "sport"}}
+        )
+        self.assertEqual(
+            (code, payload),
+            (400, {"error": "invalid_configuration_type", "keys": ["mode"]}),
+        )
+        self.assertEqual(
+            lab.handle("GET", "/api/v1/entities/powertrain/configuration")[1]["configuration"],
+            {"mode": "normal"},
+        )
+
+    def test_malformed_paths_are_rejected_without_crashing(self):
+        code, payload = SOVDLab().handle("GET", None)
+        self.assertEqual((code, payload), (400, {"error": "invalid_path"}))
+
+    def test_measure_cli_rejects_malformed_path(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            status = cli(["measure", "powertrain"])
+        self.assertEqual(status, 1)
+        self.assertIn('"invalid_measurement_path"', output.getvalue())
 if __name__=="__main__": unittest.main()

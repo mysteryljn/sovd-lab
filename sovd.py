@@ -10,6 +10,11 @@ class SOVDLab:
             "body":{"capabilities":["measurements"],"faults":[],"measurements":{"battery_voltage":12.4},"configuration":{}}
         }
     def handle(self,method,path,body=None):
+        # Requests come from an external transport, so a malformed path must
+        # be rejected as data instead of raising AttributeError from
+        # ``path.split`` and terminating the caller.
+        if not isinstance(path, str):
+            return 400,{"error":"invalid_path"}
         parts=[p for p in path.split("/") if p]
         if parts[:2]!=["api","v1"]: return 404,{"error":"not_found"}
         if len(parts)==3 and parts[2]=="entities" and method=="GET":
@@ -37,6 +42,18 @@ class SOVDLab:
             if method=="PUT" and isinstance(body,dict):
                 unknown=set(body)-set(entity["configuration"])
                 if unknown: return 400,{"error":"unknown_configuration","keys":sorted(unknown)}
+                # Configuration values have a stable type contract.  Accepting
+                # arbitrary JSON here can poison the in-memory model (for
+                # example, replacing the string ``mode`` with an object),
+                # causing clients that consume the diagnostic response to
+                # fail later.  Keep updates compatible with the value already
+                # advertised by the entity.
+                invalid = [
+                    key for key, value in body.items()
+                    if type(value) is not type(entity["configuration"][key])
+                ]
+                if invalid:
+                    return 400,{"error":"invalid_configuration_type","keys":sorted(invalid)}
                 entity["configuration"].update(copy.deepcopy(body))
                 return 200,{"entity":parts[3],"configuration":copy.deepcopy(entity["configuration"])}
         return 405,{"error":"method_not_allowed"}
@@ -51,7 +68,14 @@ def cli(argv=None):
     if a.cmd=="list": status,payload=lab.handle("GET","/api/v1/entities")
     elif a.cmd=="faults": status,payload=lab.handle("GET","/api/v1/entities/"+a.entity+"/faults")
     elif a.cmd=="measure":
-        entity,key=a.path.split(".",1); status,payload=lab.handle("GET","/api/v1/entities/"+entity+"/measurements/"+key)
+        if "." not in a.path:
+            status,payload=400,{"error":"invalid_measurement_path","message":"expected ENTITY.MEASUREMENT"}
+        else:
+            entity,key=a.path.split(".",1)
+            if not entity or not key:
+                status,payload=400,{"error":"invalid_measurement_path","message":"expected ENTITY.MEASUREMENT"}
+            else:
+                status,payload=lab.handle("GET","/api/v1/entities/"+entity+"/measurements/"+key)
     elif a.cmd=="set": status,payload=lab.handle("PUT","/api/v1/entities/"+a.entity+"/configuration",{a.key:a.value})
     else: p.error("choose list, faults, measure, or set")
     print(json.dumps(payload,indent=2,ensure_ascii=False)); return 0 if status<400 else 1
