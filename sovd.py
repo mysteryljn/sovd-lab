@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import json
 
 class SOVDLab:
@@ -12,22 +13,32 @@ class SOVDLab:
         parts=[p for p in path.split("/") if p]
         if parts[:2]!=["api","v1"]: return 404,{"error":"not_found"}
         if len(parts)==3 and parts[2]=="entities" and method=="GET":
-            return 200,{"entities":[{"id":k,"capabilities":v["capabilities"]} for k,v in sorted(self.entities.items())]}
+            return 200,{"entities":[{"id":k,"capabilities":copy.deepcopy(v["capabilities"])} for k,v in sorted(self.entities.items())]}
         if len(parts)<4 or parts[2]!="entities" or parts[3] not in self.entities: return 404,{"error":"entity_not_found"}
         entity=self.entities[parts[3]]
-        if len(parts)==5 and parts[4]=="faults" and method=="GET": return 200,{"entity":parts[3],"faults":entity["faults"]}
-        if len(parts)==5 and parts[4]=="measurements" and method=="GET": return 200,{"entity":parts[3],"measurements":entity["measurements"]}
+        if len(parts)==5 and parts[4]=="faults" and method=="GET":
+            if "faults" not in entity["capabilities"]:
+                return 404,{"error":"capability_not_supported","capability":"faults"}
+            return 200,{"entity":parts[3],"faults":copy.deepcopy(entity["faults"])}
+        if len(parts)==5 and parts[4]=="measurements" and method=="GET":
+            if "measurements" not in entity["capabilities"]:
+                return 404,{"error":"capability_not_supported","capability":"measurements"}
+            return 200,{"entity":parts[3],"measurements":copy.deepcopy(entity["measurements"])}
         if len(parts)==6 and parts[4]=="measurements" and method=="GET":
+            if "measurements" not in entity["capabilities"]:
+                return 404,{"error":"capability_not_supported","capability":"measurements"}
             key=parts[5]
             if key not in entity["measurements"]: return 404,{"error":"measurement_not_found"}
-            return 200,{"entity":parts[3],"name":key,"value":entity["measurements"][key]}
+            return 200,{"entity":parts[3],"name":key,"value":copy.deepcopy(entity["measurements"][key])}
         if len(parts)==5 and parts[4]=="configuration":
-            if method=="GET": return 200,{"entity":parts[3],"configuration":entity["configuration"]}
+            if "configuration" not in entity["capabilities"]:
+                return 404,{"error":"capability_not_supported","capability":"configuration"}
+            if method=="GET": return 200,{"entity":parts[3],"configuration":copy.deepcopy(entity["configuration"])}
             if method=="PUT" and isinstance(body,dict):
                 unknown=set(body)-set(entity["configuration"])
                 if unknown: return 400,{"error":"unknown_configuration","keys":sorted(unknown)}
-                entity["configuration"].update(body)
-                return 200,{"entity":parts[3],"configuration":entity["configuration"]}
+                entity["configuration"].update(copy.deepcopy(body))
+                return 200,{"entity":parts[3],"configuration":copy.deepcopy(entity["configuration"])}
         return 405,{"error":"method_not_allowed"}
 
 def cli(argv=None):
