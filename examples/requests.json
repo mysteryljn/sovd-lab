@@ -1,0 +1,5 @@
+[
+  {"method":"GET","path":"/api/v1/entities"},
+  {"method":"GET","path":"/api/v1/entities/powertrain/faults"},
+  {"method":"GET","path":"/api/v1/entities/powertrain/measurements/engine_speed"}
+]
