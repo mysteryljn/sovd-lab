@@ -84,6 +84,31 @@ class SovdTests(unittest.TestCase):
             {"mode": "normal"},
         )
 
+    def test_configuration_update_rejects_non_string_keys_without_crashing(self):
+        lab = SOVDLab()
+        code, payload = lab.handle(
+            "PUT",
+            "/api/v1/entities/powertrain/configuration",
+            {1: "unexpected", "unknown": "also unexpected"},
+        )
+        self.assertEqual((code, payload), (400, {"error": "invalid_configuration_keys"}))
+        self.assertEqual(
+            lab.handle("GET", "/api/v1/entities/powertrain/configuration")[1]["configuration"],
+            {"mode": "normal"},
+        )
+
+    def test_configuration_put_rejects_non_object_payload(self):
+        lab = SOVDLab()
+        for body in (None, [], "sport"):
+            code, payload = lab.handle(
+                "PUT", "/api/v1/entities/powertrain/configuration", body
+            )
+            self.assertEqual((code, payload), (400, {"error": "invalid_configuration"}))
+        self.assertEqual(
+            lab.handle("GET", "/api/v1/entities/powertrain/configuration")[1]["configuration"],
+            {"mode": "normal"},
+        )
+
     def test_malformed_paths_are_rejected_without_crashing(self):
         code, payload = SOVDLab().handle("GET", None)
         self.assertEqual((code, payload), (400, {"error": "invalid_path"}))

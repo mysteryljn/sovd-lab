@@ -39,7 +39,21 @@ class SOVDLab:
             if "configuration" not in entity["capabilities"]:
                 return 404,{"error":"capability_not_supported","capability":"configuration"}
             if method=="GET": return 200,{"entity":parts[3],"configuration":copy.deepcopy(entity["configuration"])}
+            if method=="PUT" and not isinstance(body,dict):
+                # PUT is a supported operation on this resource.  A malformed
+                # payload must therefore be reported as bad input; returning
+                # 405 makes clients believe the operation itself is unsupported
+                # and can trigger incorrect fallback/retry behavior.
+                return 400,{"error":"invalid_configuration"}
             if method=="PUT" and isinstance(body,dict):
+                # JSON object member names are strings.  The in-memory API is
+                # also callable directly, so reject Python mappings with
+                # non-string keys before set/sort operations below.  Without
+                # this guard a mixed key mapping (for example ``{1: "x",
+                # "unknown": "y"}``) raises TypeError while sorting the
+                # unknown-key response and can terminate a request handler.
+                if any(not isinstance(key,str) for key in body):
+                    return 400,{"error":"invalid_configuration_keys"}
                 unknown=set(body)-set(entity["configuration"])
                 if unknown: return 400,{"error":"unknown_configuration","keys":sorted(unknown)}
                 # Configuration values have a stable type contract.  Accepting
