@@ -15,7 +15,15 @@ class SOVDLab:
         # ``path.split`` and terminating the caller.
         if not isinstance(path, str):
             return 400,{"error":"invalid_path"}
-        parts=[p for p in path.split("/") if p]
+        # Do not silently normalize empty path segments.  An authorization or
+        # audit layer may compare the literal URI while a backend that removes
+        # empty segments would route it to a different resource (for example,
+        # ``//configuration``), creating a path-confusion boundary.
+        parts=path.split("/")
+        if parts and parts[0]=="":
+            parts=parts[1:]
+        if not parts or any(part=="" for part in parts):
+            return 400,{"error":"invalid_path"}
         if parts[:2]!=["api","v1"]: return 404,{"error":"not_found"}
         if len(parts)==3 and parts[2]=="entities" and method=="GET":
             return 200,{"entities":[{"id":k,"capabilities":copy.deepcopy(v["capabilities"])} for k,v in sorted(self.entities.items())]}
@@ -68,6 +76,19 @@ class SOVDLab:
                 ]
                 if invalid:
                     return 400,{"error":"invalid_configuration_type","keys":sorted(invalid)}
+                encoding_invalid=[]
+                for key, value in body.items():
+                    if isinstance(value, str):
+                        try:
+                            value.encode("utf-8")
+                        except UnicodeEncodeError:
+                            encoding_invalid.append(key)
+                if encoding_invalid:
+                    # JSON can carry escaped lone surrogates, but they cannot
+                    # be written to a UTF-8 response when ensure_ascii=False.
+                    # Reject them before they poison server state or crash the
+                    # transport while serializing a diagnostic response.
+                    return 400,{"error":"invalid_configuration_encoding","keys":sorted(encoding_invalid)}
                 entity["configuration"].update(copy.deepcopy(body))
                 return 200,{"entity":parts[3],"configuration":copy.deepcopy(entity["configuration"])}
         return 405,{"error":"method_not_allowed"}

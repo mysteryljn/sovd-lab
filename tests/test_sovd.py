@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import unittest
 from sovd import SOVDLab, cli
 
@@ -84,6 +85,21 @@ class SovdTests(unittest.TestCase):
             {"mode": "normal"},
         )
 
+    def test_configuration_update_rejects_unencodable_unicode(self):
+        lab = SOVDLab()
+        code, payload = lab.handle(
+            "PUT", "/api/v1/entities/powertrain/configuration", {"mode": "\ud800"}
+        )
+        self.assertEqual(
+            (code, payload),
+            (400, {"error": "invalid_configuration_encoding", "keys": ["mode"]}),
+        )
+        configuration = lab.handle("GET", "/api/v1/entities/powertrain/configuration")[1]
+        self.assertEqual(configuration["configuration"], {"mode": "normal"})
+        # A rejected request must leave a response that can be serialized as
+        # UTF-8 by the transport without a UnicodeEncodeError.
+        json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
     def test_configuration_update_rejects_non_string_keys_without_crashing(self):
         lab = SOVDLab()
         code, payload = lab.handle(
@@ -112,6 +128,20 @@ class SovdTests(unittest.TestCase):
     def test_malformed_paths_are_rejected_without_crashing(self):
         code, payload = SOVDLab().handle("GET", None)
         self.assertEqual((code, payload), (400, {"error": "invalid_path"}))
+
+    def test_empty_path_segments_are_rejected(self):
+        lab = SOVDLab()
+        for path in (
+            "/api/v1//entities",
+            "/api/v1/entities/",
+            "/api/v1/entities//powertrain",
+            "//api/v1/entities",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    lab.handle("GET", path),
+                    (400, {"error": "invalid_path"}),
+                )
 
     def test_measure_cli_rejects_malformed_path(self):
         output = io.StringIO()
